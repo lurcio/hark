@@ -1,0 +1,6 @@
+* text=auto
+
+*.go text diff=golang
+*.md linguist-documentation
+*.yml linguist-detectable=false
+*.yaml linguist-detectable=false
