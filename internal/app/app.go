@@ -562,17 +562,6 @@ func (m *Model) selectFile(idx int) {
 	m.computeCurrentFileDiff()
 }
 
-func (m *Model) focusFile(filePath string) {
-	for i, f := range m.changedFiles {
-		if f.Path == filePath {
-			m.currentFile = i
-			m.fileList.Selected = i
-			m.unseenFiles[filePath] = false
-			return
-		}
-	}
-}
-
 // --- Diff computation ---
 
 func (m *Model) computeCurrentFileDiff() {
@@ -912,7 +901,7 @@ func parseUnifiedDiff(rawDiff string) diff.DiffResult {
 			continue
 		}
 		if strings.HasPrefix(line, "@@") {
-			fmt.Sscanf(line, "@@ -%d,%*d +%d,%*d @@", &oldLine, &newLine)
+			_, _ = fmt.Sscanf(line, "@@ -%d,%*d +%d,%*d @@", &oldLine, &newLine)
 			result = append(result, diff.DiffLine{
 				Type:    diff.Header,
 				Content: line,

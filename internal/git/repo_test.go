@@ -231,9 +231,15 @@ func TestChangedFiles_MultipleFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("aaa\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("bbb\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Changed\n"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("aaa\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("bbb\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Changed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	files, err := r.ChangedFiles()
 	if err != nil {
@@ -276,8 +282,12 @@ func TestHeadChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0644)
-	wt.Add("new.txt")
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("new.txt"); err != nil {
+		t.Fatal(err)
+	}
 	_, err = wt.Commit("second commit", &gogit.CommitOptions{
 		Author: testAuthor,
 	})
