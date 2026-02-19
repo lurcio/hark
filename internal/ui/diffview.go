@@ -109,6 +109,49 @@ func (d *DiffView) JumpToPrevHunk() {
 	}
 }
 
+// CurrentLineNumber returns the source file line number at the current scroll
+// position. It maps the scroll offset to the new-file line number from the diff.
+// Returns 1 if no line mapping is available.
+func (d *DiffView) CurrentLineNumber() int {
+	d.ensureRendered()
+
+	// Account for the file header lines (filename + blank line)
+	headerLines := 0
+	if d.FileName != "" {
+		headerLines = 2
+	}
+
+	// Map scroll offset to diff line index
+	targetIdx := d.ScrollOffset - headerLines
+	if targetIdx < 0 {
+		targetIdx = 0
+	}
+
+	if d.Result.Style == diff.SideBySide {
+		if targetIdx < len(d.Result.SideBySidePairs) {
+			pair := d.Result.SideBySidePairs[targetIdx]
+			if pair.Right != nil && pair.Right.NewLineNum > 0 {
+				return pair.Right.NewLineNum
+			}
+			if pair.Left != nil && pair.Left.OldLineNum > 0 {
+				return pair.Left.OldLineNum
+			}
+		}
+	} else {
+		if targetIdx < len(d.Result.Lines) {
+			line := d.Result.Lines[targetIdx]
+			if line.NewLineNum > 0 {
+				return line.NewLineNum
+			}
+			if line.OldLineNum > 0 {
+				return line.OldLineNum
+			}
+		}
+	}
+
+	return 1
+}
+
 // View renders the diff view as a string.
 func (d *DiffView) View() string {
 	d.ensureRendered()

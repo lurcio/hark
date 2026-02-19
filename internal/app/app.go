@@ -692,6 +692,7 @@ func (m *Model) openInEditor() tea.Cmd {
 	}
 
 	filePath := filepath.Join(m.repo.Path(), m.changedFiles[m.currentFile].Path)
+	lineNum := m.diffView.CurrentLineNumber()
 
 	editor := m.cfg.Editor.Command
 	if editor == "" {
@@ -702,7 +703,18 @@ func (m *Model) openInEditor() tea.Cmd {
 	}
 
 	parts := strings.Fields(editor)
-	args := append(parts[1:], filePath)
+	base := filepath.Base(parts[0])
+
+	// Build args with line number based on editor convention
+	var args []string
+	switch base {
+	case "code", "code-insiders":
+		args = append(parts[1:], "--goto", fmt.Sprintf("%s:%d", filePath, lineNum))
+	default:
+		// vi, vim, nvim, nano, emacs, and most editors support +line
+		args = append(parts[1:], fmt.Sprintf("+%d", lineNum), filePath)
+	}
+
 	c := exec.Command(parts[0], args...)
 
 	return tea.ExecProcess(c, func(err error) tea.Msg {
