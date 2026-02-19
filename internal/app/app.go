@@ -592,9 +592,15 @@ func (m *Model) computeCurrentFileDiff() {
 	oldContent := m.readFromHEAD(file.Path)
 	newContent := m.readFromWorkdir(file.Path)
 
+	style := m.diffStyle
+	// Fall back to unified when terminal is too narrow for side-by-side
+	if style == diff.SideBySide && m.width < 120 {
+		style = diff.Unified
+	}
+
 	opts := diff.Options{
 		ContextLines: m.contextLines,
-		Style:        m.diffStyle,
+		Style:        style,
 		FileName:     file.Path,
 		WordDiff:     m.wordDiff,
 	}
