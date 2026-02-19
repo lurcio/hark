@@ -63,6 +63,10 @@ func New(cfg config.Config, repo *git.Repo, logFn LogFunc) (Watcher, error) {
 	return newCombinedWatcher(cfg, repo, logFn)
 }
 
+// dedupWindow is the time window within which duplicate events for the same
+// file path are suppressed in the combined watcher.
+const dedupWindow = 2 * time.Second
+
 // combinedWatcher merges events from the filesystem watcher and poll watcher.
 type combinedWatcher struct {
 	fs     *fsWatcher
@@ -99,6 +103,7 @@ func newCombinedWatcher(cfg config.Config, repo *git.Repo, logFn LogFunc) (*comb
 
 func (cw *combinedWatcher) merge() {
 	defer close(cw.events)
+	recent := make(map[string]time.Time)
 	for {
 		select {
 		case evt, ok := <-cw.fs.Events():
@@ -107,10 +112,8 @@ func (cw *combinedWatcher) merge() {
 				return
 			}
 			cw.logFn("combined: fs event: path=%q kind=%v", evt.Path, evt.Kind)
-			select {
-			case cw.events <- evt:
-			case <-cw.done:
-				return
+			if !cw.emitDedup(evt, recent) {
+				cw.logFn("combined: dedup suppressed fs event: path=%q", evt.Path)
 			}
 		case evt, ok := <-cw.poll.Events():
 			if !ok {
@@ -118,14 +121,28 @@ func (cw *combinedWatcher) merge() {
 				return
 			}
 			cw.logFn("combined: poll event: path=%q kind=%v", evt.Path, evt.Kind)
-			select {
-			case cw.events <- evt:
-			case <-cw.done:
-				return
+			if !cw.emitDedup(evt, recent) {
+				cw.logFn("combined: dedup suppressed poll event: path=%q", evt.Path)
 			}
 		case <-cw.done:
 			return
 		}
+	}
+}
+
+// emitDedup sends an event to the output channel unless a duplicate was emitted
+// recently. Returns true if the event was emitted, false if suppressed.
+func (cw *combinedWatcher) emitDedup(evt Event, recent map[string]time.Time) bool {
+	now := time.Now()
+	if last, ok := recent[evt.Path]; ok && now.Sub(last) < dedupWindow {
+		return false
+	}
+	recent[evt.Path] = now
+	select {
+	case cw.events <- evt:
+		return true
+	case <-cw.done:
+		return false
 	}
 }
 

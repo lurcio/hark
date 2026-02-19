@@ -135,6 +135,124 @@ func TestDebouncerLastEventWins(t *testing.T) {
 	close(done)
 }
 
+// --- Combined watcher dedup tests ---
+
+func TestEmitDedupFirstEventPasses(t *testing.T) {
+	cw := &combinedWatcher{
+		events: make(chan Event, 10),
+		done:   make(chan struct{}),
+		logFn:  func(string, ...any) {},
+	}
+
+	recent := make(map[string]time.Time)
+	evt := Event{Path: "file.go", Kind: Modified}
+
+	if !cw.emitDedup(evt, recent) {
+		t.Error("expected first event to be emitted")
+	}
+
+	select {
+	case got := <-cw.events:
+		if got.Path != "file.go" {
+			t.Errorf("expected path file.go, got %s", got.Path)
+		}
+	default:
+		t.Error("expected event in channel")
+	}
+}
+
+func TestEmitDedupSuppressesDuplicate(t *testing.T) {
+	cw := &combinedWatcher{
+		events: make(chan Event, 10),
+		done:   make(chan struct{}),
+		logFn:  func(string, ...any) {},
+	}
+
+	recent := make(map[string]time.Time)
+	evt := Event{Path: "file.go", Kind: Modified}
+
+	// First event passes.
+	if !cw.emitDedup(evt, recent) {
+		t.Fatal("expected first event to be emitted")
+	}
+	<-cw.events // drain
+
+	// Second event for the same path within the dedup window is suppressed.
+	if cw.emitDedup(evt, recent) {
+		t.Error("expected duplicate event to be suppressed")
+	}
+
+	select {
+	case got := <-cw.events:
+		t.Errorf("unexpected event in channel: %+v", got)
+	default:
+		// expected — no event
+	}
+}
+
+func TestEmitDedupAllowsDifferentPaths(t *testing.T) {
+	cw := &combinedWatcher{
+		events: make(chan Event, 10),
+		done:   make(chan struct{}),
+		logFn:  func(string, ...any) {},
+	}
+
+	recent := make(map[string]time.Time)
+
+	if !cw.emitDedup(Event{Path: "a.go", Kind: Modified}, recent) {
+		t.Error("expected event for a.go to be emitted")
+	}
+	if !cw.emitDedup(Event{Path: "b.go", Kind: Modified}, recent) {
+		t.Error("expected event for b.go to be emitted")
+	}
+
+	// Both should be in the channel.
+	for _, expected := range []string{"a.go", "b.go"} {
+		select {
+		case got := <-cw.events:
+			if got.Path != expected {
+				t.Errorf("expected path %s, got %s", expected, got.Path)
+			}
+		default:
+			t.Errorf("expected event for %s in channel", expected)
+		}
+	}
+}
+
+func TestEmitDedupAllowsAfterWindowExpires(t *testing.T) {
+	cw := &combinedWatcher{
+		events: make(chan Event, 10),
+		done:   make(chan struct{}),
+		logFn:  func(string, ...any) {},
+	}
+
+	recent := make(map[string]time.Time)
+	evt := Event{Path: "file.go", Kind: Modified}
+
+	// Simulate an event that was emitted beyond the dedup window.
+	recent["file.go"] = time.Now().Add(-3 * time.Second)
+
+	if !cw.emitDedup(evt, recent) {
+		t.Error("expected event to be emitted after dedup window expired")
+	}
+}
+
+func TestEmitDedupDoneChannelStopsEmit(t *testing.T) {
+	cw := &combinedWatcher{
+		events: make(chan Event), // unbuffered — will block
+		done:   make(chan struct{}),
+		logFn:  func(string, ...any) {},
+	}
+
+	close(cw.done)
+	recent := make(map[string]time.Time)
+	evt := Event{Path: "file.go", Kind: Modified}
+
+	if cw.emitDedup(evt, recent) {
+		t.Error("expected emitDedup to return false when done is closed")
+	}
+}
+
 // --- Poll watcher tests ---
 
 func initTestRepo(t *testing.T) string {
