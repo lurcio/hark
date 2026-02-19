@@ -402,9 +402,6 @@ func TestSingleSnapshot(t *testing.T) {
 	tl := New(10)
 	tl.Add(makeSnapshot("only.go", FileChange))
 
-	if !tl.StepBack() == false {
-		// StepBack should fail (can't go before first).
-	}
 	if tl.StepBack() {
 		t.Error("expected StepBack to fail with single snapshot")
 	}
