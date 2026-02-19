@@ -8,7 +8,7 @@ Hark is a real-time, read-only TUI for watching changes to a git repository as t
 
 ## Status
 
-This is a greenfield Go project. SPEC.md contains the full specification. No code has been written yet — consult SPEC.md for all requirements and design decisions.
+Active development. SPEC.md contains the full specification.
 
 ## Build & Test Commands
 
@@ -17,7 +17,8 @@ go build -o hark ./cmd/hark    # Build binary
 go test ./...                          # Run all tests
 go test ./internal/diff/...            # Run tests for a specific package
 go test -race ./...                    # Run with race detector
-go test -run TestName ./internal/pkg/  # Run a single test
+go test -run TestName ./internal/diff/ # Run a single test
+golangci-lint run ./...                # Lint (install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
 ```
 
 ## Tech Stack
@@ -30,7 +31,7 @@ go test -run TestName ./internal/pkg/  # Run a single test
 
 ## Architecture
 
-Planned structure from SPEC.md:
+Package structure:
 
 - `cmd/hark/main.go` — entry point, CLI flag parsing
 - `internal/app/` — Bubble Tea main model and update loop
@@ -40,6 +41,12 @@ Planned structure from SPEC.md:
 - `internal/ui/` — TUI components (diff view, file list overlay, status bar, timeline bar, help, themes)
 - `internal/config/` — TOML config (`~/.config/hark/config.toml`) merged with CLI flags
 - `internal/git/` — git operations via go-git (diff, status, HEAD tracking)
+
+## CI
+
+GitHub Actions runs on pushes and PRs to `main` (Ubuntu + macOS). See `.github/workflows/ci.yml`.
+
+**golangci-lint caveat:** The official `golangci/golangci-lint-action` bundles a pre-built binary compiled with an older Go version. Since this project uses Go 1.25, the action fails. CI instead installs golangci-lint from source via `go install` so it's compiled with the project's Go toolchain.
 
 ## Key Design Decisions
 
