@@ -21,6 +21,10 @@ type DiffView struct {
 	ShowLineNumbers bool
 	Theme           ChromaPalette
 
+	// Search state
+	SearchQuery    string // current search query (empty = no search)
+	SearchMatchLines []int  // indices into renderedLines that contain matches
+
 	// hunkPositions caches line indices (in the rendered content) where
 	// hunks begin, for n/N navigation.
 	hunkPositions []int
@@ -43,6 +47,48 @@ func (d *DiffView) SetContent(result diff.DiffResult, filename string) {
 	d.FileName = filename
 	d.ScrollOffset = 0
 	d.dirty = true
+}
+
+// SetSearchQuery updates the search query and triggers a re-render.
+func (d *DiffView) SetSearchQuery(query string) {
+	d.SearchQuery = query
+	d.dirty = true
+}
+
+// JumpToNextMatch moves the scroll position to the next search match.
+// Returns true if a match was found.
+func (d *DiffView) JumpToNextMatch() bool {
+	d.ensureRendered()
+	for _, pos := range d.SearchMatchLines {
+		if pos > d.ScrollOffset {
+			d.ScrollOffset = pos
+			return true
+		}
+	}
+	// Wrap around to first match
+	if len(d.SearchMatchLines) > 0 {
+		d.ScrollOffset = d.SearchMatchLines[0]
+		return true
+	}
+	return false
+}
+
+// JumpToPrevMatch moves the scroll position to the previous search match.
+// Returns true if a match was found.
+func (d *DiffView) JumpToPrevMatch() bool {
+	d.ensureRendered()
+	for i := len(d.SearchMatchLines) - 1; i >= 0; i-- {
+		if d.SearchMatchLines[i] < d.ScrollOffset {
+			d.ScrollOffset = d.SearchMatchLines[i]
+			return true
+		}
+	}
+	// Wrap around to last match
+	if len(d.SearchMatchLines) > 0 {
+		d.ScrollOffset = d.SearchMatchLines[len(d.SearchMatchLines)-1]
+		return true
+	}
+	return false
 }
 
 // SetSize updates the viewport dimensions.
@@ -150,6 +196,7 @@ func (d *DiffView) ensureRendered() {
 	d.dirty = false
 	d.renderedLines = nil
 	d.hunkPositions = nil
+	d.SearchMatchLines = nil
 
 	switch d.Result.Style {
 	case diff.SideBySide:
@@ -165,6 +212,7 @@ func (d *DiffView) renderLines() {
 	removedBg := d.Theme.RemovedBg
 	contextFg := d.Theme.ContextFg
 	headerFg := d.Theme.HeaderFg
+	query := strings.ToLower(d.SearchQuery)
 
 	// File header
 	if d.FileName != "" {
@@ -177,23 +225,42 @@ func (d *DiffView) renderLines() {
 
 	for _, line := range d.Result.Lines {
 		var rendered string
+		hasMatch := query != "" && strings.Contains(strings.ToLower(line.Content), query)
+		content := line.Content
+
 		switch line.Type {
 		case diff.Header:
 			d.hunkPositions = append(d.hunkPositions, len(d.renderedLines))
 			style := lipgloss.NewStyle().Foreground(headerFg)
-			rendered = style.Render("  " + line.Content)
+			rendered = style.Render("  " + content)
 		case diff.Added:
 			lineNum := d.formatLineNum(0, line.NewLineNum)
-			style := lipgloss.NewStyle().Background(addedBg)
-			rendered = style.Render(lineNum + "+" + line.Content)
+			if hasMatch {
+				rendered = lineNum + "+" + d.highlightMatches(content, addedBg)
+			} else {
+				style := lipgloss.NewStyle().Background(addedBg)
+				rendered = style.Render(lineNum + "+" + content)
+			}
 		case diff.Removed:
 			lineNum := d.formatLineNum(line.OldLineNum, 0)
-			style := lipgloss.NewStyle().Background(removedBg)
-			rendered = style.Render(lineNum + "-" + line.Content)
+			if hasMatch {
+				rendered = lineNum + "-" + d.highlightMatches(content, removedBg)
+			} else {
+				style := lipgloss.NewStyle().Background(removedBg)
+				rendered = style.Render(lineNum + "-" + content)
+			}
 		case diff.Context:
 			lineNum := d.formatLineNum(line.OldLineNum, line.NewLineNum)
-			style := lipgloss.NewStyle().Foreground(contextFg)
-			rendered = style.Render(lineNum + " " + line.Content)
+			if hasMatch {
+				rendered = lineNum + " " + d.highlightMatches(content, "")
+			} else {
+				style := lipgloss.NewStyle().Foreground(contextFg)
+				rendered = style.Render(lineNum + " " + content)
+			}
+		}
+
+		if hasMatch {
+			d.SearchMatchLines = append(d.SearchMatchLines, len(d.renderedLines))
 		}
 		d.renderedLines = append(d.renderedLines, rendered)
 	}
@@ -205,6 +272,7 @@ func (d *DiffView) renderSideBySide() {
 	removedBg := d.Theme.RemovedBg
 	contextFg := d.Theme.ContextFg
 	headerFg := d.Theme.HeaderFg
+	query := strings.ToLower(d.SearchQuery)
 
 	halfWidth := d.Width / 2
 	if halfWidth < 10 {
@@ -223,43 +291,112 @@ func (d *DiffView) renderSideBySide() {
 	for _, pair := range d.Result.SideBySidePairs {
 		leftStr := ""
 		rightStr := ""
+		hasMatch := false
 
 		if pair.Left != nil {
+			leftMatch := query != "" && strings.Contains(strings.ToLower(pair.Left.Content), query)
+			if leftMatch {
+				hasMatch = true
+			}
 			num := ""
 			if d.ShowLineNumbers {
 				num = fmt.Sprintf("%4d ", pair.Left.OldLineNum)
 			}
 			switch pair.Left.Type {
 			case diff.Removed:
-				style := lipgloss.NewStyle().Background(removedBg).Width(halfWidth)
-				leftStr = style.Render(num + "-" + pair.Left.Content)
+				if leftMatch {
+					inner := num + "-" + d.highlightMatches(pair.Left.Content, removedBg)
+					leftStr = lipgloss.NewStyle().Width(halfWidth).Render(inner)
+				} else {
+					style := lipgloss.NewStyle().Background(removedBg).Width(halfWidth)
+					leftStr = style.Render(num + "-" + pair.Left.Content)
+				}
 			default:
-				style := lipgloss.NewStyle().Foreground(contextFg).Width(halfWidth)
-				leftStr = style.Render(num + " " + pair.Left.Content)
+				if leftMatch {
+					inner := num + " " + d.highlightMatches(pair.Left.Content, "")
+					leftStr = lipgloss.NewStyle().Width(halfWidth).Render(inner)
+				} else {
+					style := lipgloss.NewStyle().Foreground(contextFg).Width(halfWidth)
+					leftStr = style.Render(num + " " + pair.Left.Content)
+				}
 			}
 		} else {
 			leftStr = lipgloss.NewStyle().Width(halfWidth).Render("")
 		}
 
 		if pair.Right != nil {
+			rightMatch := query != "" && strings.Contains(strings.ToLower(pair.Right.Content), query)
+			if rightMatch {
+				hasMatch = true
+			}
 			num := ""
 			if d.ShowLineNumbers {
 				num = fmt.Sprintf("%4d ", pair.Right.NewLineNum)
 			}
 			switch pair.Right.Type {
 			case diff.Added:
-				style := lipgloss.NewStyle().Background(addedBg).Width(halfWidth)
-				rightStr = style.Render(num + "+" + pair.Right.Content)
+				if rightMatch {
+					inner := num + "+" + d.highlightMatches(pair.Right.Content, addedBg)
+					rightStr = lipgloss.NewStyle().Width(halfWidth).Render(inner)
+				} else {
+					style := lipgloss.NewStyle().Background(addedBg).Width(halfWidth)
+					rightStr = style.Render(num + "+" + pair.Right.Content)
+				}
 			default:
-				style := lipgloss.NewStyle().Foreground(contextFg).Width(halfWidth)
-				rightStr = style.Render(num + " " + pair.Right.Content)
+				if rightMatch {
+					inner := num + " " + d.highlightMatches(pair.Right.Content, "")
+					rightStr = lipgloss.NewStyle().Width(halfWidth).Render(inner)
+				} else {
+					style := lipgloss.NewStyle().Foreground(contextFg).Width(halfWidth)
+					rightStr = style.Render(num + " " + pair.Right.Content)
+				}
 			}
 		} else {
 			rightStr = lipgloss.NewStyle().Width(halfWidth).Render("")
 		}
 
+		if hasMatch {
+			d.SearchMatchLines = append(d.SearchMatchLines, len(d.renderedLines))
+		}
 		d.renderedLines = append(d.renderedLines, leftStr+rightStr)
 	}
+}
+
+// highlightMatches returns the content string with search matches highlighted.
+// baseBg is the background color for non-matching portions (empty string for none).
+func (d *DiffView) highlightMatches(content string, baseBg lipgloss.Color) string {
+	query := strings.ToLower(d.SearchQuery)
+	if query == "" {
+		return content
+	}
+
+	highlightStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("#FFD700")).
+		Foreground(lipgloss.Color("#000000"))
+
+	var baseStyle lipgloss.Style
+	if baseBg != "" {
+		baseStyle = lipgloss.NewStyle().Background(baseBg)
+	} else {
+		baseStyle = lipgloss.NewStyle().Foreground(d.Theme.ContextFg)
+	}
+
+	lower := strings.ToLower(content)
+	var b strings.Builder
+	pos := 0
+	for {
+		idx := strings.Index(lower[pos:], query)
+		if idx < 0 {
+			b.WriteString(baseStyle.Render(content[pos:]))
+			break
+		}
+		if idx > 0 {
+			b.WriteString(baseStyle.Render(content[pos : pos+idx]))
+		}
+		b.WriteString(highlightStyle.Render(content[pos+idx : pos+idx+len(query)]))
+		pos += idx + len(query)
+	}
+	return b.String()
 }
 
 // formatLineNum formats old/new line numbers for display.
