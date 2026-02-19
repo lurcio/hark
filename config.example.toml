@@ -1,0 +1,33 @@
+# Hark configuration file
+# Copy to ~/.config/hark/config.toml and customise as needed.
+# All values shown below are the defaults.
+
+# Change detection
+[watch]
+poll_interval = "1s"         # Git polling fallback interval
+poll_only = false             # Disable filesystem watcher, use polling only
+debounce = "100ms"            # Debounce window for rapid file writes
+
+# Display
+[display]
+diff_style = "unified"        # "unified", "side-by-side", "full-file"
+theme = "dracula"             # Chroma theme name
+word_diff = false             # Word-level diff highlighting
+context_lines = 3             # Lines of context around changes
+show_line_numbers = true      # Show line numbers in diff view
+
+# Timeline
+[timeline]
+max_snapshots = 1000          # Maximum snapshots retained in memory
+
+# Filtering
+[filter]
+extra_ignore = [              # Additional glob patterns to ignore
+    "*.log",
+    ".env*",
+    "dist/**",
+]
+
+# Editor integration
+[editor]
+command = ""                  # Override $EDITOR (e.g. "code --goto")
