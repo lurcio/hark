@@ -41,12 +41,12 @@ That's it. Hark picks up file changes in real time and shows you syntax-highligh
 │                                                     │
 │  @@ -42,7 +42,9 @@ func HandleRequest(...)          │
 │   42 │   ctx := r.Context()                         │
-│   43 │   logger := log.FromContext(ctx)              │
-│   44 │-  resp, err := svc.Process(ctx, req)          │
-│   44 │+  resp, err := svc.Process(ctx, req, opts)    │
-│   45 │+  if err != nil {                             │
-│   46 │+      return fmt.Errorf("process: %w", err)   │
-│   47 │   }                                           │
+│   43 │   logger := log.FromContext(ctx)             │
+│   44 │-  resp, err := svc.Process(ctx, req)         │
+│   44 │+  resp, err := svc.Process(ctx, req, opts)   │
+│   45 │+  if err != nil {                            │
+│   46 │+      return fmt.Errorf("process: %w", err)  │
+│   47 │   }                                          │
 │                                                     │
 ├─────────────────────────────────────────────────────┤
 │ ◀ ■ ▶  ────●──────────────── 14/27    12:04:32      │
