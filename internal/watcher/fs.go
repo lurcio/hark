@@ -9,22 +9,25 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/go-git/go-billy/v5/osfs"
+	gitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
 
 // fsWatcher uses fsnotify for near-instant filesystem change detection.
 type fsWatcher struct {
-	watcher *fsnotify.Watcher
-	events  chan Event
-	done    chan struct{}
-	root    string
-	ignores []string
-	once    sync.Once
-	logFn   LogFunc
+	watcher    *fsnotify.Watcher
+	events     chan Event
+	done       chan struct{}
+	root       string
+	ignores    []string
+	gitMatcher gitignore.Matcher
+	once       sync.Once
+	logFn      LogFunc
 }
 
 // newFSWatcher creates a filesystem watcher that recursively watches root,
 // debounces events within the given window, and filters paths matching
-// extraIgnore glob patterns and .git/.
+// extraIgnore glob patterns, .git/, and .gitignore rules.
 func newFSWatcher(root string, debounce time.Duration, extraIgnore []string, logFn LogFunc) (*fsWatcher, error) {
 	if logFn == nil {
 		logFn = func(string, ...any) {}
@@ -34,13 +37,16 @@ func newFSWatcher(root string, debounce time.Duration, extraIgnore []string, log
 		return nil, fmt.Errorf("watcher: creating fsnotify watcher: %w", err)
 	}
 
+	matcher := loadGitignorePatterns(root, logFn)
+
 	fw := &fsWatcher{
-		watcher: w,
-		events:  make(chan Event, 100),
-		done:    make(chan struct{}),
-		root:    root,
-		ignores: extraIgnore,
-		logFn:   logFn,
+		watcher:    w,
+		events:     make(chan Event, 100),
+		done:       make(chan struct{}),
+		root:       root,
+		ignores:    extraIgnore,
+		gitMatcher: matcher,
+		logFn:      logFn,
 	}
 
 	if err := fw.addRecursive(root); err != nil {
@@ -92,6 +98,21 @@ func (fw *fsWatcher) isIgnored(rel string) bool {
 	if rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
 		return true
 	}
+
+	// Check gitignore patterns.
+	if fw.gitMatcher != nil {
+		pathParts := strings.Split(filepath.ToSlash(rel), "/")
+		// Check if path is a directory on disk to correctly match directory-only patterns.
+		isDir := false
+		if info, err := os.Stat(filepath.Join(fw.root, rel)); err == nil {
+			isDir = info.IsDir()
+		}
+		if fw.gitMatcher.Match(pathParts, isDir) {
+			return true
+		}
+	}
+
+	// Check extra ignore patterns.
 	base := filepath.Base(rel)
 	for _, pattern := range fw.ignores {
 		if matched, _ := filepath.Match(pattern, rel); matched {
@@ -175,4 +196,40 @@ func (fw *fsWatcher) Close() error {
 		err = fw.watcher.Close()
 	})
 	return err
+}
+
+// loadGitignorePatterns reads gitignore rules from the repo, global config,
+// and system config, returning a combined matcher.
+func loadGitignorePatterns(root string, logFn LogFunc) gitignore.Matcher {
+	var patterns []gitignore.Pattern
+
+	// Load system-level patterns (e.g. /etc/gitconfig core.excludesFile).
+	rootFS := osfs.New("/")
+	if ps, err := gitignore.LoadSystemPatterns(rootFS); err == nil {
+		patterns = append(patterns, ps...)
+	} else {
+		logFn("gitignore: loading system patterns: %v", err)
+	}
+
+	// Load global patterns (~/.config/git/ignore or core.excludesFile from ~/.gitconfig).
+	if ps, err := gitignore.LoadGlobalPatterns(rootFS); err == nil {
+		patterns = append(patterns, ps...)
+	} else {
+		logFn("gitignore: loading global patterns: %v", err)
+	}
+
+	// Load repo-level patterns (.git/info/exclude + all .gitignore files).
+	repoFS := osfs.New(root)
+	if ps, err := gitignore.ReadPatterns(repoFS, nil); err == nil {
+		patterns = append(patterns, ps...)
+	} else {
+		logFn("gitignore: reading repo patterns: %v", err)
+	}
+
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	logFn("gitignore: loaded %d patterns for %s", len(patterns), root)
+	return gitignore.NewMatcher(patterns)
 }
