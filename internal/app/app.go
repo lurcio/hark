@@ -65,6 +65,10 @@ type Model struct {
 	width  int
 	height int
 
+	// Search state
+	searchMode  bool
+	searchQuery string
+
 	// Debug
 	debug       *DebugLogger
 	watcherEvts int // count of watcher events received
@@ -184,9 +188,15 @@ func (m *Model) View() string {
 	}
 
 	statusBar := m.statusBar.View()
-	timelineBar := m.timelineBar.View()
 
-	contentHeight := m.height - 2 // status bar + timeline bar
+	var bottomBar string
+	if m.searchMode {
+		bottomBar = m.renderSearchBar()
+	} else {
+		bottomBar = m.timelineBar.View()
+	}
+
+	contentHeight := m.height - 2 // status bar + bottom bar
 	if contentHeight < 0 {
 		contentHeight = 0
 	}
@@ -203,7 +213,7 @@ func (m *Model) View() string {
 	// Force middle to exact height so the timeline bar stays at the bottom.
 	middle = lipgloss.NewStyle().Height(contentHeight).Render(middle)
 
-	return lipgloss.JoinVertical(lipgloss.Left, statusBar, middle, timelineBar)
+	return lipgloss.JoinVertical(lipgloss.Left, statusBar, middle, bottomBar)
 }
 
 // --- Commands ---
@@ -243,6 +253,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Search mode: route keys to search input
+	if m.searchMode {
+		return m.handleSearchKey(msg)
+	}
+
 	switch msg.String() {
 	// Quit
 	case "q", "ctrl+c":
@@ -252,6 +267,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Help
 	case "?":
 		m.help.Toggle()
+
+	// Search
+	case "/":
+		m.searchMode = true
+		m.searchQuery = ""
+		m.diffView.SetSearchQuery("")
 
 	// Navigation
 	case "j", "down":
@@ -267,9 +288,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G":
 		m.diffView.ScrollToBottom()
 	case "n":
-		m.diffView.JumpToNextHunk()
+		if m.diffView.SearchQuery != "" {
+			m.diffView.JumpToNextMatch()
+		} else {
+			m.diffView.JumpToNextHunk()
+		}
 	case "N":
-		m.diffView.JumpToPrevHunk()
+		if m.diffView.SearchQuery != "" {
+			m.diffView.JumpToPrevMatch()
+		} else {
+			m.diffView.JumpToPrevHunk()
+		}
 
 	// File management
 	case "tab":
@@ -321,6 +350,36 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openInEditor()
 	}
 
+	return m, nil
+}
+
+// handleSearchKey processes key events while in search mode.
+func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		// Exit search mode, keep highlights
+		m.searchMode = false
+	case "esc":
+		// Exit search mode and clear search
+		m.searchMode = false
+		m.searchQuery = ""
+		m.diffView.SetSearchQuery("")
+	case "backspace":
+		if len(m.searchQuery) > 0 {
+			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+			m.diffView.SetSearchQuery(m.searchQuery)
+		}
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	default:
+		// Only append printable characters (single runes)
+		key := msg.String()
+		if len(key) == 1 && key[0] >= ' ' && key[0] <= '~' {
+			m.searchQuery += key
+			m.diffView.SetSearchQuery(m.searchQuery)
+		}
+	}
 	return m, nil
 }
 
@@ -708,6 +767,43 @@ func (m *Model) openInEditor() tea.Cmd {
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err}
 	})
+}
+
+// --- Search bar rendering ---
+
+func (m *Model) renderSearchBar() string {
+	bg := m.palette.TimelineBg
+	fg := m.palette.TimelineFg
+	accent := m.palette.AccentColor
+
+	promptStyle := lipgloss.NewStyle().
+		Background(bg).
+		Foreground(accent).
+		Bold(true)
+
+	inputStyle := lipgloss.NewStyle().
+		Background(bg).
+		Foreground(fg)
+
+	matchInfo := ""
+	if m.searchQuery != "" {
+		count := len(m.diffView.SearchMatchLines)
+		if count == 0 {
+			matchInfo = " (no matches)"
+		} else {
+			matchInfo = fmt.Sprintf(" (%d matches)", count)
+		}
+	}
+
+	content := promptStyle.Render("/") + inputStyle.Render(m.searchQuery+"_"+matchInfo)
+
+	// Pad to full width
+	gap := m.width - lipgloss.Width(content)
+	if gap > 0 {
+		content += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", gap))
+	}
+
+	return content
 }
 
 // --- Layout ---
