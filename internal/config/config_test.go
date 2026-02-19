@@ -403,6 +403,102 @@ func TestDurationMarshal(t *testing.T) {
 	}
 }
 
+func TestSaveCreatesFileAndDirs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sub", "dir", "config.toml")
+
+	cfg := Default()
+	cfg.Display.Theme = "monokai"
+	cfg.Display.DiffStyle = "side-by-side"
+
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	// Read it back
+	loaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom error: %v", err)
+	}
+
+	if loaded.Display.Theme != "monokai" {
+		t.Errorf("Theme = %q, want %q", loaded.Display.Theme, "monokai")
+	}
+	if loaded.Display.DiffStyle != "side-by-side" {
+		t.Errorf("DiffStyle = %q, want %q", loaded.Display.DiffStyle, "side-by-side")
+	}
+	// Non-display defaults should be preserved
+	if loaded.Watch.PollInterval.Duration != 1*time.Second {
+		t.Errorf("PollInterval = %v, want %v", loaded.Watch.PollInterval.Duration, 1*time.Second)
+	}
+	if loaded.Timeline.MaxSnapshots != 1000 {
+		t.Errorf("MaxSnapshots = %d, want %d", loaded.Timeline.MaxSnapshots, 1000)
+	}
+}
+
+func TestSavePreservesAllFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	cfg.Watch.PollOnly = true
+	cfg.Display.Theme = "nord"
+	cfg.Display.ContextLines = 7
+	cfg.Filter.ExtraIgnore = []string{"*.log", "dist/**"}
+	cfg.Editor.Command = "code --goto"
+
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom error: %v", err)
+	}
+
+	if !loaded.Watch.PollOnly {
+		t.Error("PollOnly should be true")
+	}
+	if loaded.Display.Theme != "nord" {
+		t.Errorf("Theme = %q, want %q", loaded.Display.Theme, "nord")
+	}
+	if loaded.Display.ContextLines != 7 {
+		t.Errorf("ContextLines = %d, want %d", loaded.Display.ContextLines, 7)
+	}
+	if len(loaded.Filter.ExtraIgnore) != 2 {
+		t.Fatalf("ExtraIgnore len = %d, want 2", len(loaded.Filter.ExtraIgnore))
+	}
+	if loaded.Editor.Command != "code --goto" {
+		t.Errorf("Editor.Command = %q, want %q", loaded.Editor.Command, "code --goto")
+	}
+}
+
+func TestSaveOverwritesExisting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	// Write initial config
+	cfg := Default()
+	cfg.Display.Theme = "dracula"
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("first Save error: %v", err)
+	}
+
+	// Overwrite with new theme
+	cfg.Display.Theme = "monokai"
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("second Save error: %v", err)
+	}
+
+	loaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom error: %v", err)
+	}
+	if loaded.Display.Theme != "monokai" {
+		t.Errorf("Theme = %q, want %q", loaded.Display.Theme, "monokai")
+	}
+}
+
 func TestMergeZeroValueFlags(t *testing.T) {
 	cfg := Default()
 

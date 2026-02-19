@@ -2,6 +2,8 @@
 package config
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -126,6 +128,34 @@ func LoadFrom(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// Save writes the full config to the given path, creating parent directories
+// if needed. It marshals the entire config to preserve all values.
+func (c Config) Save(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	enc := toml.NewEncoder(&buf)
+	if err := enc.Encode(c); err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
+// SaveDisplaySettingsAsync persists the config to the default path in a
+// goroutine. Errors are logged but do not propagate — UI responsiveness
+// takes priority over config persistence.
+func (c Config) SaveDisplaySettingsAsync() {
+	go func() {
+		if err := c.Save(DefaultConfigPath()); err != nil {
+			log.Printf("config: save error: %v", err)
+		}
+	}()
 }
 
 // CLIFlags represents the subset of configuration that can be overridden via

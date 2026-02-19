@@ -732,12 +732,28 @@ func (m *Model) cycleDiffStyle() {
 		m.diffStyle = diff.Unified
 	}
 	m.recomputeCurrentDiff()
+	m.persistDisplaySettings()
 }
 
 func (m *Model) cycleTheme() {
 	m.themeName = ui.CycleTheme(m.themeName)
 	m.palette = ui.ThemeByName(m.themeName)
 	m.applyTheme()
+	m.persistDisplaySettings()
+}
+
+func (m *Model) persistDisplaySettings() {
+	// Update the in-memory config with current display state
+	switch m.diffStyle {
+	case diff.SideBySide:
+		m.cfg.Display.DiffStyle = "side-by-side"
+	case diff.FullFile:
+		m.cfg.Display.DiffStyle = "full-file"
+	default:
+		m.cfg.Display.DiffStyle = "unified"
+	}
+	m.cfg.Display.Theme = m.themeName
+	m.cfg.SaveDisplaySettingsAsync()
 }
 
 func (m *Model) applyTheme() {
