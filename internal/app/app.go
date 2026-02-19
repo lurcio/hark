@@ -114,6 +114,8 @@ func New(cfg config.Config, repo *git.Repo, w watcher.Watcher, tl *timeline.Time
 		debug:        dbg,
 	}
 
+	m.diffView.ShowLineNumbers = cfg.Display.ShowLineNumbers
+
 	dbg.Log("app initialized: repo=%s, poll_only=%v, poll_interval=%v, debounce=%v",
 		repo.Path(), cfg.Watch.PollOnly, cfg.Watch.PollInterval.Duration, cfg.Watch.Debounce.Duration)
 
